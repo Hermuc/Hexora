@@ -12,6 +12,7 @@ import android.widget.TextView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import io.github.abdurazaaqmohammed.MPManager.R;
+import io.github.abdurazaaqmohammed.domain.player.PlaybackSeek;
 import io.github.codehasan.colorpicker.extensions.Extensions;
 
 public class MiniPlayerDialog {
@@ -24,6 +25,7 @@ public class MiniPlayerDialog {
     private SeekBar seekBar;
     private final PlayerManager playerManager;
     private boolean isShowing;
+    private boolean userIsSeeking;
 
     private final PlayerManager.PlaybackCallback callback = new PlayerManager.PlaybackCallback() {
         @Override public void onStateChanged(PlayerManager.PlayState newState) {
@@ -33,7 +35,9 @@ public class MiniPlayerDialog {
         }
         @Override public void onProgress(int position, int duration) {
             if (dialog != null && dialog.isShowing() && duration > 0) {
-                seekBar.setProgress((int) ((long) position * 1000 / duration));
+                if (!userIsSeeking) {
+                    seekBar.setProgress(PlaybackSeek.positionToProgress(position, duration, seekBar.getMax()));
+                }
                 currentTime.setText(formatTime(position));
                 totalTime.setText(formatTime(duration));
             }
@@ -83,11 +87,11 @@ public class MiniPlayerDialog {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 if (fromUser) {
                     int dur = playerManager.getDuration();
-                    if (dur > 0) playerManager.seekTo((int) ((long) progress * dur / 1000));
+                    if (dur > 0) playerManager.seekTo(PlaybackSeek.progressToPositionMs(progress, sb.getMax(), dur));
                 }
             }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
+            @Override public void onStartTrackingTouch(SeekBar sb) { userIsSeeking = true; }
+            @Override public void onStopTrackingTouch(SeekBar sb) { userIsSeeking = false; }
         });
 
         dialog = new MaterialAlertDialogBuilder(activity)

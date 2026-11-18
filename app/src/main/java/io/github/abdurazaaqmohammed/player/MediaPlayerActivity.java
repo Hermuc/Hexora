@@ -26,6 +26,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import io.github.abdurazaaqmohammed.core.ui.base.BaseActivity;
+import io.github.abdurazaaqmohammed.domain.player.PlaybackSeek;
 import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -204,13 +205,13 @@ public class MediaPlayerActivity extends BaseActivity implements
             @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
                 if (u) {
                     int dur = playerManager.getDuration();
-                    if (dur > 0) currentTime.setText(formatTime((long) p * dur / 1000));
+                    if (dur > 0) currentTime.setText(formatTime(PlaybackSeek.progressToPositionMs(p, sb.getMax(), dur)));
                 }
             }
             @Override public void onStartTrackingTouch(SeekBar sb) { userIsSeeking = true; }
             @Override public void onStopTrackingTouch(SeekBar sb) {
                 int dur = playerManager.getDuration();
-                if (dur > 0) playerManager.seekTo(sb.getProgress() * dur / 1000);
+                if (dur > 0) playerManager.seekTo(PlaybackSeek.progressToPositionMs(sb.getProgress(), sb.getMax(), dur));
                 userIsSeeking = false;
                 showControlsTemporarily();
             }
@@ -511,7 +512,7 @@ public class MediaPlayerActivity extends BaseActivity implements
             currentTime.setText(formatTime(position));
             totalTime.setText(formatTime(duration));
             if (!userIsSeeking && duration > 0) {
-                seekBar.setProgress((int) ((long) position * 1000 / duration));
+                seekBar.setProgress(PlaybackSeek.positionToProgress(position, duration, seekBar.getMax()));
             }
             if (playerManager.hasABRepeat()) {
                 int ab = (int) ((long) position * 1000 / Math.max(duration, 1));

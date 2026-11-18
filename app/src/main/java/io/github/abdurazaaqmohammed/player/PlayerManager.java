@@ -392,10 +392,11 @@ public class PlayerManager {
     }
 
     public void seekTo(int msec) {
-        if (mediaPlayer != null) {
-            msec = Math.max(0, msec);
-            try { mediaPlayer.seekTo(msec); } catch (Exception ignored) {}
-        }
+        if (mediaPlayer == null) return;
+        int duration = getDuration();
+        if (duration > 0) msec = Math.min(msec, duration);
+        msec = Math.max(0, msec);
+        try { mediaPlayer.seekTo(msec); } catch (Exception ignored) {}
     }
 
     public void skipForward() { seekTo(getCurrentPosition() + skipDuration); }
