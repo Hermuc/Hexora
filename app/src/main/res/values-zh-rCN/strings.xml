@@ -391,6 +391,12 @@
     <string name="image_properties">图像属性</string>
     <string name="player_settings">播放器设置</string>
     <string name="keep_screen_on">保持屏幕开启：%1$s</string>
+    <string name="player_orientation_auto">自动</string>
+    <string name="player_orientation_portrait">竖屏</string>
+    <string name="player_orientation_landscape">横屏</string>
+    <string name="player_orientation_button">屏幕方向：%1$s</string>
+    <string name="player_speed_boost">%1$.1f× 倍速</string>
+    <string name="player_speed_boost_unsupported">此设备不支持倍速播放</string>
     <string name="skip_duration_X">跳过时长：%1$ds</string>
     <string name="close_player">关闭播放器</string>
     <string name="skip_duration">跳过时长</string>

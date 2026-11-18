@@ -40,6 +40,7 @@ public class PlayerManager {
     private boolean shuffle;
     private boolean keepScreenOn = true;
     private float playbackSpeed = 1f;
+    private float temporaryPlaybackSpeed; // 0 表示未启用长按倍速
     private float volumeLeft = 1f;
     private float volumeRight = 1f;
     private boolean isMuted;
@@ -388,6 +389,7 @@ public class PlayerManager {
         abandonAudioFocus();
         isVideo = false;
         pendingPrepareItem = null;
+        temporaryPlaybackSpeed = 0f;
         notifyState(PlayState.STOPPED);
     }
 
@@ -428,10 +430,33 @@ public class PlayerManager {
 
     public void setPlaybackSpeed(float speed) {
         this.playbackSpeed = speed;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && mediaPlayer != null) {
-            try {
-                mediaPlayer.setPlaybackParams(mediaPlayer.getPlaybackParams().setSpeed(speed));
-            } catch (Exception ignored) {}
+        applyPlaybackSpeed();
+    }
+
+    /** 临时倍速（长按加速）；不会改变 playbackSpeed，也不写入偏好。返回是否成功应用。 */
+    public boolean setTemporaryPlaybackSpeed(float speed) {
+        this.temporaryPlaybackSpeed = Math.max(0f, speed);
+        return applyPlaybackSpeed();
+    }
+
+    public void clearTemporaryPlaybackSpeed() {
+        if (this.temporaryPlaybackSpeed == 0f) return;
+        this.temporaryPlaybackSpeed = 0f;
+        applyPlaybackSpeed();
+    }
+
+    private float effectivePlaybackSpeed() {
+        return temporaryPlaybackSpeed > 0f ? temporaryPlaybackSpeed : playbackSpeed;
+    }
+
+    private boolean applyPlaybackSpeed() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || mediaPlayer == null) return false;
+        try {
+            mediaPlayer.setPlaybackParams(mediaPlayer.getPlaybackParams()
+                    .setSpeed(effectivePlaybackSpeed()));
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -496,6 +521,7 @@ public class PlayerManager {
         isVideo = item.isVideo;
         pendingPrepareItem = null;
         prepared = false;
+        temporaryPlaybackSpeed = 0f;
 
         stopProgressUpdater();
         abandonAudioFocus();
@@ -534,8 +560,11 @@ public class PlayerManager {
             resumePosition = 0;
             requestAudioFocus();
             mp.setVolume(isMuted ? 0 : volumeLeft, isMuted ? 0 : volumeRight);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && playbackSpeed != 1f) {
-                try { mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(playbackSpeed)); } catch (Exception ignored) {}
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                float effectiveSpeed = effectivePlaybackSpeed();
+                if (effectiveSpeed != 1f) {
+                    try { mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(effectiveSpeed)); } catch (Exception ignored) {}
+                }
             }
             mp.start();
             notifyState(PlayState.PLAYING);
@@ -610,6 +639,7 @@ public class PlayerManager {
         try { player.release(); } catch (Exception ignored) {}
         mediaPlayer = null;
         prepared = false;
+        temporaryPlaybackSpeed = 0f;
         abandonAudioFocus();
         notifyState(PlayState.ERROR);
         notifyError("Cannot play file: " + error.getMessage());
@@ -715,6 +745,7 @@ public class PlayerManager {
         Uri uri = Uri.fromFile(new File(filePath));
         String title = null, artist = null, album = null;
         long duration = 0;
+        int videoWidth = 0, videoHeight = 0, videoRotation = 0;
         boolean isVideo = io.github.abdurazaaqmohammed.utils.FileUtils.matchExt(
                 "." + org.apache.commons.io.FilenameUtils.getExtension(filePath).toLowerCase(Locale.ROOT),
                 io.github.abdurazaaqmohammed.utils.FileUtils.VIDEO_EXTS);
@@ -729,6 +760,12 @@ public class PlayerManager {
             if (al != null) album = al;
             String d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             if (d != null) try { duration = Long.parseLong(d); } catch (NumberFormatException ignored) {}
+            String vw = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            if (vw != null) try { videoWidth = Integer.parseInt(vw); } catch (NumberFormatException ignored) {}
+            String vh = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+            if (vh != null) try { videoHeight = Integer.parseInt(vh); } catch (NumberFormatException ignored) {}
+            String rot = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            if (rot != null) try { videoRotation = Integer.parseInt(rot); } catch (NumberFormatException ignored) {}
             String mime = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE);
             if (mime != null) isVideo = mime.startsWith("video/");
             mmr.release();
@@ -737,6 +774,7 @@ public class PlayerManager {
             String name = filePath.substring(filePath.lastIndexOf('/') + 1);
             title = filePath.lastIndexOf('\\') >= 0 ? filePath.substring(filePath.lastIndexOf('\\') + 1) : name;
         }
-        return new MediaItem(uri, filePath, title, artist, album, duration, isVideo);
+        return new MediaItem(uri, filePath, title, artist, album, duration, isVideo,
+                videoWidth, videoHeight, videoRotation);
     }
 }

@@ -3,6 +3,7 @@ package io.github.abdurazaaqmohammed.player;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.os.Bundle;
@@ -46,8 +47,11 @@ public class MediaPlayerActivity extends BaseActivity implements
     private LinearLayout artworkContainer, abRepeatBar, controlsContainer;
     private View toolbar;
     private ImageView artworkView;
-    private TextView trackTitle, trackArtist, trackAlbum, currentTime, totalTime, speedLabel, errorMessage, bufferingIndicator;
+    private TextView trackTitle, trackArtist, trackAlbum, currentTime, totalTime, speedLabel, errorMessage, bufferingIndicator, btnOrientation, speedBoostIndicator;
     private ImageButton btnPlayPause, btnNext, btnPrevious, btnRewind, btnFastForward, btnRepeat, btnShuffle, btnMute, btnQueue, btnLock, btnSettings, btnAspect, btnUnlock;
+    private PlayerOrientationController orientationController;
+    private SpeedBoostController speedBoostController;
+    private boolean longPressTriggered;
     private Button btnSetA, btnSetB;
     private ImageButton btnClearAB;
     private SeekBar seekBar, speedSeekBar, volumeSeekBar;
@@ -96,6 +100,9 @@ public class MediaPlayerActivity extends BaseActivity implements
         playerManager.setVideoSizeChangedListener(this);
 
         initViews();
+        orientationController = new PlayerOrientationController(this, btnOrientation);
+        orientationController.onCreate();
+        speedBoostController = new SpeedBoostController(this, playerManager, speedBoostIndicator);
         setupControls();
         setupSeekBar();
         setupVideoSurface();
@@ -146,6 +153,8 @@ public class MediaPlayerActivity extends BaseActivity implements
         btnSettings = findViewById(R.id.btnSettings);
         btnAspect = findViewById(R.id.btnAspect);
         btnUnlock = findViewById(R.id.btnUnlock);
+        btnOrientation = findViewById(R.id.btnOrientation);
+        speedBoostIndicator = findViewById(R.id.speedBoostIndicator);
         btnSetA = findViewById(R.id.btnSetA);
         btnSetB = findViewById(R.id.btnSetB);
         btnClearAB = findViewById(R.id.btnClearAB);
@@ -262,7 +271,7 @@ public class MediaPlayerActivity extends BaseActivity implements
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDoubleTap(@NonNull MotionEvent e) {
-                if (controlsLocked) return false;
+                if (controlsLocked || speedBoostController.isActive() || longPressTriggered) return false;
                 float screenWidth = getWindow().getDecorView().getWidth();
                 if (e.getX() < screenWidth / 3f) {
                     playerManager.skipBackward();
@@ -277,6 +286,7 @@ public class MediaPlayerActivity extends BaseActivity implements
 
             @Override
             public boolean onSingleTapConfirmed(@NonNull MotionEvent e) {
+                if (longPressTriggered || speedBoostController.isActive()) return true;
                 if (playerManager.isPlayingVideo()) {
                     if (controlsLocked) {
                         showUnlockOnly();
@@ -290,7 +300,7 @@ public class MediaPlayerActivity extends BaseActivity implements
 
             @Override
             public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float vX, float vY) {
-                if (controlsLocked) return false;
+                if (controlsLocked || speedBoostController.isActive() || longPressTriggered) return false;
                 float dx = e2.getX() - e1.getX();
                 if (Math.abs(dx) > Math.abs(vY * 3) && Math.abs(dx) > 100) {
                     if (dx > 0) playerManager.skipBackward();
@@ -300,10 +310,23 @@ public class MediaPlayerActivity extends BaseActivity implements
                 }
                 return false;
             }
+
+            @Override
+            public void onLongPress(@NonNull MotionEvent e) {
+                if (controlsLocked || !playerManager.isPlayingVideo()) return;
+                if (playerManager.getState() != PlayerManager.PlayState.PLAYING) return;
+                longPressTriggered = true;
+                speedBoostController.start();
+            }
         });
 
         videoContainer.setOnTouchListener((v, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) longPressTriggered = false;
             gestureDetector.onTouchEvent(event);
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                speedBoostController.stop();
+            }
             return true;
         });
         videoContainer.setClickable(true);
@@ -348,6 +371,7 @@ public class MediaPlayerActivity extends BaseActivity implements
 
     private void setLocked(boolean locked) {
         controlsLocked = locked;
+        if (orientationController != null) orientationController.onControlsLocked(locked);
         hideUnlock();
         btnLock.setImageResource(locked
                 ? R.drawable.lock_24px
@@ -478,6 +502,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     @Override
     public void onStateChanged(PlayerManager.PlayState newState) {
         runOnUiThread(() -> {
+            if (newState != PlayerManager.PlayState.PLAYING) speedBoostController.cancel();
             updatePlayPauseIcon();
             switch (newState) {
                 case PLAYING:
@@ -524,6 +549,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     @Override
     public void onMediaItemChanged(MediaItem item) {
         runOnUiThread(() -> {
+            speedBoostController.cancel();
             updateUIForCurrentItem();
             updateQueueAdapter();
             startService(new Intent(this, MusicService.class));
@@ -534,6 +560,7 @@ public class MediaPlayerActivity extends BaseActivity implements
         MediaItem item = playerManager.getCurrentItem();
         if (item == null) return;
 
+        orientationController.onMediaItemChanged(item);
         boolean isVideo = item.isVideo;
         videoContainer.setVisibility(isVideo ? View.VISIBLE : View.GONE);
         artworkContainer.setVisibility(isVideo ? View.GONE : View.VISIBLE);
@@ -608,7 +635,14 @@ public class MediaPlayerActivity extends BaseActivity implements
                 videoH = height;
                 fitVideo();
             }
+            if (orientationController != null) orientationController.onVideoSizeChanged(width, height);
         });
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        videoContainer.post(this::fitVideo);
     }
 
     private void showPlayerSettings() {
@@ -657,6 +691,7 @@ public class MediaPlayerActivity extends BaseActivity implements
         updateUIForCurrentItem();
         updateControlsState();
         updatePlayPauseIcon();
+        if (orientationController != null) orientationController.onResume();
         if (pausedForBackground) {
             playerManager.play();
             pausedForBackground = false;
@@ -668,6 +703,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     @Override
     protected void onPause() {
         super.onPause();
+        speedBoostController.cancel();
         playerManager.decrementUIVisible();
         autoHideHandler.removeCallbacks(autoHideRunnable);
         if (playerManager.isPlayingVideo() && !playerManager.isVideoBackgroundPlay() && playerManager.getState() == PlayerManager.PlayState.PLAYING) {
@@ -679,6 +715,7 @@ public class MediaPlayerActivity extends BaseActivity implements
 
     @Override
     protected void onDestroy() {
+        speedBoostController.cancel();
         playerManager.unregisterCallback(this);
         playerManager.setVideoSizeChangedListener(null);
         autoHideHandler.removeCallbacks(autoHideRunnable);
