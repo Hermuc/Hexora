@@ -395,8 +395,11 @@
     <string name="player_orientation_portrait">竖屏</string>
     <string name="player_orientation_landscape">横屏</string>
     <string name="player_orientation_button">屏幕方向：%1$s</string>
-    <string name="player_speed_boost">%1$.1f× 倍速</string>
+    <string name="player_speed_boost">%1$s× 倍速</string>
     <string name="player_speed_boost_unsupported">此设备不支持倍速播放</string>
+    <string name="player_seek_preview">%1$s  %2$s</string>
+    <string name="player_seek_forward">+%1$d 秒</string>
+    <string name="player_seek_backward">-%1$d 秒</string>
     <string name="skip_duration_X">跳过时长：%1$ds</string>
     <string name="close_player">关闭播放器</string>
     <string name="skip_duration">跳过时长</string>

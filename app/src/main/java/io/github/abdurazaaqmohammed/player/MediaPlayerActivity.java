@@ -48,10 +48,11 @@ public class MediaPlayerActivity extends BaseActivity implements
     private LinearLayout artworkContainer, abRepeatBar, controlsContainer;
     private View toolbar;
     private ImageView artworkView;
-    private TextView trackTitle, trackArtist, trackAlbum, currentTime, totalTime, speedLabel, errorMessage, bufferingIndicator, btnOrientation, speedBoostIndicator;
+    private TextView trackTitle, trackArtist, trackAlbum, currentTime, totalTime, speedLabel, errorMessage, bufferingIndicator, btnOrientation, speedBoostIndicator, seekPreviewIndicator;
     private ImageButton btnPlayPause, btnNext, btnPrevious, btnRewind, btnFastForward, btnRepeat, btnShuffle, btnMute, btnQueue, btnLock, btnSettings, btnAspect, btnUnlock;
     private PlayerOrientationController orientationController;
     private SpeedBoostController speedBoostController;
+    private HorizontalSeekGestureController horizontalSeekController;
     private SystemUiController systemUiController;
     private boolean longPressTriggered;
     private Button btnSetA, btnSetB;
@@ -106,6 +107,8 @@ public class MediaPlayerActivity extends BaseActivity implements
         orientationController = new PlayerOrientationController(this, btnOrientation);
         orientationController.onCreate();
         speedBoostController = new SpeedBoostController(this, playerManager, speedBoostIndicator);
+        horizontalSeekController = new HorizontalSeekGestureController(
+                this, playerManager, seekBar, seekPreviewIndicator);
         setupControls();
         setupSeekBar();
         setupVideoSurface();
@@ -158,6 +161,7 @@ public class MediaPlayerActivity extends BaseActivity implements
         btnUnlock = findViewById(R.id.btnUnlock);
         btnOrientation = findViewById(R.id.btnOrientation);
         speedBoostIndicator = findViewById(R.id.speedBoostIndicator);
+        seekPreviewIndicator = findViewById(R.id.seekPreviewIndicator);
         btnSetA = findViewById(R.id.btnSetA);
         btnSetB = findViewById(R.id.btnSetB);
         btnClearAB = findViewById(R.id.btnClearAB);
@@ -273,8 +277,18 @@ public class MediaPlayerActivity extends BaseActivity implements
     private void setupGestureControls() {
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
+            public boolean onDown(@NonNull MotionEvent e) {
+                if (!controlsLocked && !speedBoostController.isActive()
+                        && playerManager.isPlayingVideo()) {
+                    horizontalSeekController.onDown(e);
+                }
+                return true;
+            }
+
+            @Override
             public boolean onDoubleTap(@NonNull MotionEvent e) {
-                if (controlsLocked || speedBoostController.isActive() || longPressTriggered) return false;
+                if (controlsLocked || speedBoostController.isActive() || longPressTriggered
+                        || horizontalSeekController.isActive()) return false;
                 float screenWidth = getWindow().getDecorView().getWidth();
                 if (e.getX() < screenWidth / 3f) {
                     playerManager.skipBackward();
@@ -289,7 +303,8 @@ public class MediaPlayerActivity extends BaseActivity implements
 
             @Override
             public boolean onSingleTapConfirmed(@NonNull MotionEvent e) {
-                if (longPressTriggered || speedBoostController.isActive()) return true;
+                if (longPressTriggered || speedBoostController.isActive()
+                        || horizontalSeekController.isActive()) return true;
                 if (playerManager.isPlayingVideo()) {
                     if (controlsLocked) {
                         showUnlockOnly();
@@ -303,32 +318,43 @@ public class MediaPlayerActivity extends BaseActivity implements
 
             @Override
             public boolean onFling(MotionEvent e1, @NonNull MotionEvent e2, float vX, float vY) {
-                if (controlsLocked || speedBoostController.isActive() || longPressTriggered) return false;
-                float dx = e2.getX() - e1.getX();
-                if (Math.abs(dx) > Math.abs(vY * 3) && Math.abs(dx) > 100) {
-                    if (dx > 0) playerManager.skipBackward();
-                    else playerManager.skipForward();
-                    showControlsTemporarily();
-                    return true;
-                }
                 return false;
+            }
+
+            @Override
+            public boolean onScroll(MotionEvent e1, @NonNull MotionEvent e2, float distanceX, float distanceY) {
+                if (controlsLocked) return false;
+                if (speedBoostController.isActive()) {
+                    return speedBoostController.onScroll(e1, e2, distanceX, distanceY);
+                }
+                if (longPressTriggered) return false;
+                return horizontalSeekController.onScroll(e1, e2, distanceX, distanceY);
             }
 
             @Override
             public void onLongPress(@NonNull MotionEvent e) {
                 if (controlsLocked || !playerManager.isPlayingVideo()) return;
                 if (playerManager.getState() != PlayerManager.PlayState.PLAYING) return;
+                horizontalSeekController.cancel();
                 longPressTriggered = true;
-                speedBoostController.start();
+                speedBoostController.start(e.getY());
             }
         });
 
         videoContainer.setOnTouchListener((v, event) -> {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) longPressTriggered = false;
+            if (action == MotionEvent.ACTION_MOVE && speedBoostController.isActive()) {
+                // GestureDetector 长按后会丢弃 MOVE 事件，必须在原始触摸流里处理垂直调速。
+                speedBoostController.onMove(event);
+            }
             gestureDetector.onTouchEvent(event);
-            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (action == MotionEvent.ACTION_UP) {
                 speedBoostController.stop();
+                horizontalSeekController.commit();
+            } else if (action == MotionEvent.ACTION_CANCEL) {
+                speedBoostController.stop();
+                horizontalSeekController.cancel();
             }
             return true;
         });
@@ -506,6 +532,10 @@ public class MediaPlayerActivity extends BaseActivity implements
     public void onStateChanged(PlayerManager.PlayState newState) {
         runOnUiThread(() -> {
             if (newState != PlayerManager.PlayState.PLAYING) speedBoostController.cancel();
+            if (newState != PlayerManager.PlayState.PLAYING
+                    && newState != PlayerManager.PlayState.PAUSED) {
+                horizontalSeekController.cancel();
+            }
             updatePlayPauseIcon();
             switch (newState) {
                 case PLAYING:
@@ -537,9 +567,10 @@ public class MediaPlayerActivity extends BaseActivity implements
     @Override
     public void onProgress(int position, int duration) {
         runOnUiThread(() -> {
-            currentTime.setText(formatTime(position));
+            boolean seekPreview = horizontalSeekController.isActive();
+            if (!seekPreview) currentTime.setText(formatTime(position));
             totalTime.setText(formatTime(duration));
-            if (!userIsSeeking && duration > 0) {
+            if (!userIsSeeking && !seekPreview && duration > 0) {
                 seekBar.setProgress(PlaybackSeek.positionToProgress(position, duration, seekBar.getMax()));
             }
             if (playerManager.hasABRepeat()) {
@@ -553,6 +584,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     public void onMediaItemChanged(MediaItem item) {
         runOnUiThread(() -> {
             speedBoostController.cancel();
+            horizontalSeekController.cancel();
             updateUIForCurrentItem();
             updateQueueAdapter();
             startService(new Intent(this, MusicService.class));
@@ -646,6 +678,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     @Override
     public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        horizontalSeekController.cancel();
         if (systemUiController != null) systemUiController.reapply();
         videoContainer.post(this::fitVideo);
     }
@@ -717,6 +750,7 @@ public class MediaPlayerActivity extends BaseActivity implements
         super.onPause();
         if (systemUiController != null) systemUiController.showStatusBar();
         speedBoostController.cancel();
+        horizontalSeekController.cancel();
         playerManager.decrementUIVisible();
         autoHideHandler.removeCallbacks(autoHideRunnable);
         if (playerManager.isPlayingVideo() && !playerManager.isVideoBackgroundPlay() && playerManager.getState() == PlayerManager.PlayState.PLAYING) {
@@ -730,6 +764,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     protected void onDestroy() {
         if (systemUiController != null) systemUiController.showStatusBar();
         speedBoostController.cancel();
+        horizontalSeekController.cancel();
         playerManager.unregisterCallback(this);
         playerManager.setVideoSizeChangedListener(null);
         autoHideHandler.removeCallbacks(autoHideRunnable);

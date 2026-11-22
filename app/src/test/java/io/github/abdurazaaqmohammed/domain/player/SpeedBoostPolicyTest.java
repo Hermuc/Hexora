@@ -26,4 +26,28 @@ public class SpeedBoostPolicyTest {
         assertEquals(2.0f, SpeedBoostPolicy.effectiveSpeed(0f, 2.0f), 0.001f);
         assertEquals(1.0f, SpeedBoostPolicy.effectiveSpeed(0f, 0f), 0.001f);
     }
+
+    @Test public void nearestSpeedSnapsToDisplayedLevel() {
+        assertEquals(2.0f, SpeedBoostPolicy.nearestSpeed(1.8f), 0.001f);
+        assertEquals(2.5f, SpeedBoostPolicy.nearestSpeed(2.4f), 0.001f);
+    }
+
+    @Test public void upwardDragIncreasesOneStepPerExtent() {
+        assertEquals(2.5f, SpeedBoostPolicy.speedForVerticalDrag(2.0f, -36f, 36f), 0.001f);
+    }
+
+    @Test public void downwardDragDecreasesOneStepPerExtent() {
+        assertEquals(1.0f, SpeedBoostPolicy.speedForVerticalDrag(2.0f, 72f, 36f), 0.001f);
+    }
+
+    @Test public void dragClampsAtBothEnds() {
+        assertEquals(3.0f, SpeedBoostPolicy.speedForVerticalDrag(2.0f, -1000f, 36f), 0.001f);
+        assertEquals(0.25f, SpeedBoostPolicy.speedForVerticalDrag(2.0f, 1000f, 36f), 0.001f);
+    }
+
+    @Test public void speedLabelsKeepTwoDecimalsForQuarterSteps() {
+        assertEquals("0.75", SpeedBoostPolicy.formatSpeed(0.75f));
+        assertEquals("2", SpeedBoostPolicy.formatSpeed(2.0f));
+        assertEquals("2.5", SpeedBoostPolicy.formatSpeed(2.5f));
+    }
 }
