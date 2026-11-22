@@ -27,6 +27,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import io.github.abdurazaaqmohammed.core.ui.base.BaseActivity;
+import io.github.abdurazaaqmohammed.core.ui.util.SystemUiController;
 import io.github.abdurazaaqmohammed.domain.player.PlaybackSeek;
 import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -51,6 +52,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     private ImageButton btnPlayPause, btnNext, btnPrevious, btnRewind, btnFastForward, btnRepeat, btnShuffle, btnMute, btnQueue, btnLock, btnSettings, btnAspect, btnUnlock;
     private PlayerOrientationController orientationController;
     private SpeedBoostController speedBoostController;
+    private SystemUiController systemUiController;
     private boolean longPressTriggered;
     private Button btnSetA, btnSetB;
     private ImageButton btnClearAB;
@@ -94,6 +96,7 @@ public class MediaPlayerActivity extends BaseActivity implements
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_media_player);
 
+        systemUiController = new SystemUiController(this);
         playerManager = PlayerManager.getInstance(this);
         prefs = PreferenceManager.getDefaultSharedPreferences(this);
         playerManager.registerCallback(this);
@@ -562,6 +565,7 @@ public class MediaPlayerActivity extends BaseActivity implements
 
         orientationController.onMediaItemChanged(item);
         boolean isVideo = item.isVideo;
+        systemUiController.setStatusBarHidden(isVideo);
         videoContainer.setVisibility(isVideo ? View.VISIBLE : View.GONE);
         artworkContainer.setVisibility(isVideo ? View.GONE : View.VISIBLE);
 
@@ -642,7 +646,14 @@ public class MediaPlayerActivity extends BaseActivity implements
     @Override
     public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        if (systemUiController != null) systemUiController.reapply();
         videoContainer.post(this::fitVideo);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (systemUiController != null) systemUiController.onWindowFocusChanged(hasFocus);
     }
 
     private void showPlayerSettings() {
@@ -691,6 +702,7 @@ public class MediaPlayerActivity extends BaseActivity implements
         updateUIForCurrentItem();
         updateControlsState();
         updatePlayPauseIcon();
+        if (systemUiController != null) systemUiController.reapply();
         if (orientationController != null) orientationController.onResume();
         if (pausedForBackground) {
             playerManager.play();
@@ -703,6 +715,7 @@ public class MediaPlayerActivity extends BaseActivity implements
     @Override
     protected void onPause() {
         super.onPause();
+        if (systemUiController != null) systemUiController.showStatusBar();
         speedBoostController.cancel();
         playerManager.decrementUIVisible();
         autoHideHandler.removeCallbacks(autoHideRunnable);
@@ -715,6 +728,7 @@ public class MediaPlayerActivity extends BaseActivity implements
 
     @Override
     protected void onDestroy() {
+        if (systemUiController != null) systemUiController.showStatusBar();
         speedBoostController.cancel();
         playerManager.unregisterCallback(this);
         playerManager.setVideoSizeChangedListener(null);
